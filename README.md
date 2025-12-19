@@ -3,7 +3,7 @@
 - Nguyễn Văn Lâm Hùng
 - Phan Anh
 - Lê Sỹ Long Nhật
-- Vũ Trí Trường
+- Vũ Trí Trường - 2351260692
 
 ## 2. Hướng dẫn làm việc
 - Khuyến nghị mọi người cài đặt Ruff extention trên VSCode để điều chỉnh định dạng chuẩn (chi cần lưu là Ruff extention sẽ định dạng lại file chuẩn quốc tế)
