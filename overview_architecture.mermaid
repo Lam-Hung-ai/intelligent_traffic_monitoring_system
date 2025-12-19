@@ -1,0 +1,72 @@
+graph TD
+    %% Source Layer
+    subgraph "1. Data Source"
+        CAM[Cameras Stream - RTSP]
+    end
+
+    %% Ingestion Layer
+    subgraph "2. Ingestion Layer (Message Broker)"
+        PROD[Producers - OpenCV/Python]
+        KAFKA{Apache Kafka}
+        SR[Schema Registry]
+        CAM --> PROD
+        PROD --> KAFKA
+        SR -.-> KAFKA
+    end
+
+    %% Processing Layers
+    subgraph "3. Speed Layer (Real-time Flow Prediction)"
+        FLINK[Apache Flink / Spark Streaming]
+        YOLO_T[ML Model: YOLOv12]
+        LSTM[ML Model: LSTM Prediction]
+        REDIS[(Redis - Hot Data)]
+        
+        KAFKA --> FLINK
+        FLINK --> YOLO_T
+        YOLO_T --> LSTM
+        LSTM --> REDIS
+    end
+
+    subgraph "4. Batch Layer (Violation Detection)"
+        MINIO[(MinIO / HDFS - Data Lake)]
+        AIRFLOW[Apache Airflow - Scheduler]
+        SPARK[Apache Spark - Heavy Batch]
+        YOLO_X[ML Model: YOLOv12 + DeepSORT]
+        OCR[ML Model: LPR / OCR]
+        ICEBERG[(Apache Iceberg / Delta Lake)]
+
+        KAFKA --> MINIO
+        MINIO --> SPARK
+        AIRFLOW -.-> SPARK
+        SPARK --> YOLO_X
+        YOLO_X --> OCR
+        OCR --> ICEBERG
+    end
+
+    %% Serving Layer
+    subgraph "5. Serving & Analytics"
+        CH[(ClickHouse - OLAP DB)]
+        API[FastAPI]
+        DASH[Grafana / Superset]
+        LLM[LLM API - Q&A]
+
+        REDIS --> API
+        ICEBERG --> CH
+        CH --> DASH
+        API <--> LLM
+        CH --> API
+    end
+
+    %% Final Output
+    subgraph "6. User Interface"
+        USER(Admin Dashboard / Mobile App)
+        DASH --> USER
+        API --> USER
+    end
+
+    %% Styling
+    style KAFKA fill:#f96,stroke:#333,stroke-width:2px
+    style FLINK fill:#bbf,stroke:#333
+    style SPARK fill:#dfd,stroke:#333
+    style MINIO fill:#eee,stroke:#333
+    style REDIS fill:#ff9,stroke:#333
