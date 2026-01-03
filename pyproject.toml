@@ -1,0 +1,19 @@
+[project]
+name = "intelligent-traffic-monitoring-system"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13.11"
+dependencies = [
+    "kafka-python>=2.3.0",
+    "lz4>=4.4.5",
+    "pandas>=2.3.3",
+    "pyarrow>=22.0.0",
+    "pyspark>=4.1.0",
+    "torch>=2.9.1",
+    "ultralytics>=8.3.246",
+]
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
