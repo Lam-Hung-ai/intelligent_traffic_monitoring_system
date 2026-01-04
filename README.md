@@ -85,7 +85,6 @@ KAFKA_CLUSTER_ID="$(kafka-storage.sh random-uuid)"
 kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /opt/kafka/config/server.properties
 
 # 2. Cấu hình giới hạn dung lượng message (> 10 MB cho dữ liệu hình ảnh YOLO)
-echo "controller.quorum.voters=1@localhost:9093" >> /opt/kafka/config/server.properties
 echo "message.max.bytes=10485760" >> /opt/kafka/config/server.properties
 echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/server.properties
 ```
