@@ -82,12 +82,12 @@ Kafka 4.x sử dụng KRaft thay thế cho Zookeeper.
 ```bash
 # 1. Tạo Cluster ID và định dạng ổ đĩa
 KAFKA_CLUSTER_ID="$(kafka-storage.sh random-uuid)"
-kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /opt/kafka/config/kraft/server.properties
+kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /opt/kafka/config/server.properties
 
 # 2. Cấu hình giới hạn dung lượng message (> 10 MB cho dữ liệu hình ảnh YOLO)
 echo "controller.quorum.voters=1@localhost:9093" >> /opt/kafka/config/server.properties
-echo "message.max.bytes=10485760" >> /opt/kafka/config/kraft/server.properties
-echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/kraft/server.properties
+echo "message.max.bytes=10485760" >> /opt/kafka/config/server.properties
+echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/server.properties
 ```
 
 ### 4.2. Khởi động Server và Tạo Topic
