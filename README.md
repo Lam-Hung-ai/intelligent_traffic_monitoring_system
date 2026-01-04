@@ -85,6 +85,7 @@ KAFKA_CLUSTER_ID="$(kafka-storage.sh random-uuid)"
 kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /opt/kafka/config/kraft/server.properties
 
 # 2. Cấu hình giới hạn dung lượng message (> 10 MB cho dữ liệu hình ảnh YOLO)
+echo "controller.quorum.voters=1@localhost:9093" >> /opt/kafka/config/server.properties
 echo "message.max.bytes=10485760" >> /opt/kafka/config/kraft/server.properties
 echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/kraft/server.properties
 ```
@@ -92,7 +93,7 @@ echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/kraft/server.proper
 ### 4.2. Khởi động Server và Tạo Topic
 ```bash
 # Chạy Kafka Server (Chế độ chạy ngầm - daemon)
-kafka-server-start.sh -daemon /opt/kafka/config/kraft/server.properties
+kafka-server-start.sh -daemon /opt/kafka/config/server.properties
 
 # Tạo topic cho dữ liệu YOLO
 kafka-topics.sh --create --topic yolo-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
@@ -114,7 +115,7 @@ uv run producer_images.py
 ### Terminal 2: Consumer (Spark Streaming & YOLO)
 Đọc dữ liệu từ Kafka và thực hiện nhận diện phương tiện.
 ```bash
-uv run spark_vehicle_counting.py
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.0 spark_vehicle_counting.py
 ```
 
 ---
