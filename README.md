@@ -95,7 +95,7 @@ echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/server.properties
 kafka-server-start.sh -daemon /opt/kafka/config/server.properties
 
 # Tạo topic cho dữ liệu YOLO
-kafka-topics.sh --create --topic yolo-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+kafka-topics.sh --create --topic traffic-volume
 ```
 
 ---
@@ -117,9 +117,26 @@ uv run producer_images.py
 spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.0 spark_vehicle_counting.py
 ```
 
----
+## 6. Hướng dẫn chạy luồng 1
+Cài đặt [mongodb](https://www.mongodb.com/try/download/community)  
+Sau đó cài đặt [mongosh](https://www.mongodb.com/docs/mongodb-shell/install/)
+Chạy từng câu lệnh trên các terminal khác nhau  
+- Terminal 1
+```bash
+python kafka/producer.py --idx 0 # Chạy producer gửi lên kafka
+```
+- Terminal 2
+```bash
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.0 spark/traffic_monitor.py #  Chạy spark để đếm lưu lượng
+```
+- Terminal 3
+```bash
+mongosh  #  Chạy mogo sh
+use traffic_monitoring  # sử dụng cơ sở dữ liệu traffic_monitoring
+db.chuong_trinh.find().sort({timestamp: -1}).limit(10)   # Lấy 10 dòng đầu
+```
 
-## 6. Quy trình làm việc với Git (Dành cho Dev)
+## 7. Quy trình làm việc với Git (Dành cho Dev)
 
 ### Cài đặt khuyến nghị
 - Cài đặt extension **Ruff** trên VSCode để tự động format code chuẩn.
