@@ -1,0 +1,37 @@
+graph LR
+    subgraph Producers ["Nguồn dữ liệu (Cameras)"]
+        C1[Cam 001]
+        C2[Cam 002]
+        C3[Cam 003]
+        C4[Cam 004]
+    end
+
+    subgraph Kafka_Topic ["Kafka Topic: traffic-volume"]
+        direction TB
+        P0[("Partition 0<br/>(Chứa Cam 001, ...)")]
+        P1[("Partition 1<br/>(Chứa Cam 002, ... )")]
+        P2[("Partition 2<br/>(Chứa Cam 003, ... )")]
+        P3[("Partition 3<br/>(Chứa Cam 004, ... )")]
+    end
+
+    subgraph Spark_Consumers ["Spark Streaming Consumers"]
+        W1["Spark Worker 1<br/>(Đọc Partition 0)"]
+        W2["Spark Worker 2<br/>(Đọc Partition 1)"]
+        W3["Spark Worker 3<br/>(Đọc Partition 2)"]
+        W4["Spark Worker 4<br/>(Đọc Partition 3)"]
+    end
+
+    C1 -->|Hash Key| P0
+    C2 -->|Hash Key| P1
+    C3 -->|Hash Key| P2
+    C4 -->|Hash Key| P3
+
+    P0 ==> W1
+    P1 ==> W2
+    P2 ==> W3
+    P3 ==> W4
+
+    style P0 fill:#ffcc80,stroke:#e65100
+    style P1 fill:#ffcc80,stroke:#e65100
+    style P2 fill:#ffcc80,stroke:#e65100
+    style P3 fill:#ffcc80,stroke:#e65100
