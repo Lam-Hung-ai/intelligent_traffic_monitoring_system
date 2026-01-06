@@ -1,0 +1,44 @@
+graph TD
+    %% Định nghĩa Style
+    classDef process fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef highlight fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+
+    subgraph Driver ["Spark Driver (Điều phối)"]
+        Coordinator[Phân chia Micro-batch]
+    end
+
+    subgraph Worker_Node ["Spark Worker (Tại mỗi node xử lý)"]
+        direction TB
+        
+        subgraph Init ["Khởi tạo (Lazy Loading)"]
+            CheckLock{Đã có Model?}
+            LoadModel[Load YOLOv11 vào GPU/RAM]
+            GlobalVar[Global: sys._yolo_model]
+        end
+
+        subgraph Execution ["Vòng lặp xử lý (Batch Loop)"]
+            Receive[Nhận Batch ảnh từ Driver]
+            Preprocess[Decode Binary -> OpenCV]
+            Inference[Dự đoán hàng loạt: model.predict]
+            Format[Đóng gói JSON]
+        end
+    end
+
+    %% Luồng điều phối
+    Coordinator -->|Gửi Task + Data| Receive
+
+    %% Luồng khởi tạo Model (Chỉ chạy 1 lần/Executor)
+    Receive --> CheckLock
+    CheckLock -->|No| LoadModel
+    LoadModel --> GlobalVar
+    CheckLock -->|Yes| GlobalVar
+    
+    %% Luồng xử lý dữ liệu
+    GlobalVar --> Preprocess
+    Preprocess --> Inference
+    Inference --> Format
+    Format -->|Write Stream| KafkaOut[Kafka: traffic-raw]
+
+    %% Gán class cho các node
+    class Coordinator,Receive,Preprocess,Inference,Format process
+    class LoadModel,GlobalVar highlight

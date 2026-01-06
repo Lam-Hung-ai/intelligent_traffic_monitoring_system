@@ -1,0 +1,71 @@
+graph TD
+    %% Định nghĩa Style
+    classDef storage fill:#dbf0fc,stroke:#0077b6,stroke-width:2px;
+    classDef process fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    classDef compute fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+    classDef client fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+
+    %% 1. Nguồn Dữ liệu
+    subgraph Source ["1. Data Source (Local/Edge)"]
+        Cam1[Camera 1]
+        Cam2[Camera N]
+    end
+
+    %% 2. Lưu trữ & Phân phối (Kafka)
+    subgraph Kafka_Cluster ["2. Distributed Storage (Kafka)"]
+        direction TB
+        Topic_In[("Topic: traffic-images<br/>(Binary Images)")]:::storage
+        Topic_Raw[("Topic: traffic-raw<br/>(JSON Detect)")]:::storage
+        Topic_Agg[("Topic: traffic-aggregated<br/>(JSON Stats)")]:::storage
+        Topic_Fc[("Topic: traffic-forecast<br/>(JSON Forecast)")]:::storage
+    end
+
+    %% 3. Xử lý Phân tán (Spark)
+    subgraph Spark_Cluster ["3. Distributed Processing (Spark Cluster)"]
+        
+        subgraph Job1 ["Job 1: AI Inference"]
+            Driver1[Driver 1]
+            Worker1_1[Worker 1: YOLO GPU]:::compute
+            Worker1_2[Worker 2: YOLO GPU]:::compute
+        end
+
+        subgraph Job2 ["Job 2: Aggregation"]
+            Driver2[Driver 2]
+            Worker2_1[Worker A: Windowing]:::compute
+            Worker2_2[Worker B: Shuffle/Reduce]:::compute
+        end
+
+        subgraph Job3 ["Job 3: Forecasting"]
+            Driver3[Driver 3]
+            Worker3_1[Worker X: Feature Eng]:::compute
+            Worker3_2[Worker Y: GBT Predict]:::compute
+        end
+    end
+
+    %% 4. Serving Layer
+    subgraph Serving ["4. Serving Layer (Backend)"]
+        FastAPI["FastAPI Server<br/>(Async Consumer)"]:::process
+        Redis[("Redis<br/>Cache & Lock")]:::storage
+    end
+
+    %% Luồng dữ liệu (Sửa lỗi kết nối)
+    Cam1 & Cam2 -->|Streaming| Topic_In
+    
+    %% Luồng Job 1
+    Topic_In --> Driver1
+    Driver1 -.-> Worker1_1 & Worker1_2
+    Worker1_1 & Worker1_2 --> Topic_Raw
+    
+    %% Luồng Job 2
+    Topic_Raw --> Driver2
+    Driver2 -.-> Worker2_1 & Worker2_2
+    Worker2_1 & Worker2_2 --> Topic_Agg
+    
+    %% Luồng Job 3
+    Topic_Agg --> Driver3
+    Driver3 -.-> Worker3_1 & Worker3_2
+    Worker3_1 & Worker3_2 --> Topic_Fc
+    
+    %% Luồng tiêu thụ cuối
+    Topic_Agg & Topic_Fc --> FastAPI
+    FastAPI <--> Redis

@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant Kafka as Kafka Topic
+    participant W1 as Backend Worker 1
+    participant W2 as Backend Worker 2
+    participant Redis as Redis (Lock & Storage)
+
+    Note over Kafka, Redis: Cả 2 Worker cùng nhận dữ liệu mới cho Cam_001
+
+    Kafka->>W1: Message (Cam_001, Time: 10:05)
+    Kafka->>W2: Message (Cam_001, Time: 10:05)
+
+    rect rgb(200, 255, 200)
+        Note left of W1: Worker 1 nhanh tay hơn
+        W1->>Redis: SETNX lock:cam:001 (Xin khóa)
+        Redis-->>W1: OK (Thành công)
+        
+        W1->>Redis: GET cam_data:001
+        Redis-->>W1: {History: [...]}
+        W1->>W1: Cập nhật History + Forecast
+        W1->>Redis: SET cam_data:001 (Lưu mới)
+        
+        W1->>Redis: DEL lock:cam:001 (Mở khóa)
+    end
+
+    rect rgb(255, 200, 200)
+        Note right of W2: Worker 2 chậm hơn
+        W2->>Redis: SETNX lock:cam:001 (Xin khóa)
+        Redis-->>W2: FAIL (Đang bị khóa)
+        W2->>W2: Chờ hoặc Thử lại sau (Retry logic)
+        Note right of W2: Đảm bảo dữ liệu không bị ghi đè sai lệch
+    end
