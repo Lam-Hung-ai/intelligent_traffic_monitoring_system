@@ -1,5 +1,7 @@
 import torch
 from ultralytics.models import YOLO
+import json
+from datetime import datetime, UTC
 from collections import Counter # Thêm thư viện này để đếm nhanh hơn
 
 # Device
@@ -22,7 +24,6 @@ results = model.predict(
 
 # Biến để lưu trữ kết quả cuối cùng
 final_counts = {}
-
 for result in results:
     detected_names = []
     
@@ -37,5 +38,11 @@ for result in results:
     # Sử dụng Counter để đếm số lần xuất hiện của mỗi tên lớp
     final_counts = dict(Counter(detected_names))
 
-# In kết quả ra màn hình
-print(final_counts)
+# kết quả cuối cùng
+result = {
+    "timestamp": datetime.now(UTC).isoformat(),
+    "address": "Test Address",
+    "traffic volume": sum(final_counts.values()),
+    "detail": final_counts
+}
+print(json.dumps(result, ensure_ascii=False))
