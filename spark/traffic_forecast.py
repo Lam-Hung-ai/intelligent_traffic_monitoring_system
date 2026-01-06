@@ -4,7 +4,7 @@ import pyspark.sql.functions as F
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType, ArrayType
 from pyspark.ml import PipelineModel
 
-# 1. Khởi tạo Spark Session
+# Khởi tạo phiên làm việc Spark với cấu hình múi giờ địa phương và tối ưu hóa số lượng phân vùng xử lý
 spark = SparkSession.builder \
     .appName("Job2_TrafficPredictor_CorrectTime") \
     .config("spark.sql.shuffle.partitions", "4") \
@@ -13,7 +13,7 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel("WARN")
 
-# 2. Load Model
+# Tải mô hình học máy GBT đã được huấn luyện từ trước; dừng chương trình nếu có lỗi để tránh dự báo sai lệch
 model_path = "forecast_traffic_volume/traffic_gbt_model"
 try:
     traffic_model = PipelineModel.load(model_path)
@@ -21,7 +21,7 @@ try:
 except Exception as e:
     import sys; sys.exit(f"!!! Lỗi load model: {e}")
 
-# 3. Schema Input
+# Định nghĩa cấu trúc dữ liệu cho luồng đầu vào, khớp với định dạng JSON từ topic 'traffic-aggregated'
 input_schema = StructType([
     StructField("start_time", TimestampType(), True),
     StructField("end_time", TimestampType(), True),
@@ -30,7 +30,7 @@ input_schema = StructType([
     StructField("avg_traffic_volume", DoubleType(), True)
 ])
 
-# 4. Read Kafka
+# Thiết lập kết nối streaming tới Kafka để tiêu thụ dữ liệu tổng hợp theo thời gian thực
 kafka_df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
@@ -38,11 +38,13 @@ kafka_df = spark.readStream \
     .option("startingOffsets", "latest") \
     .load()
 
+# Giải mã dữ liệu nhị phân từ Kafka và phân tách các trường thông tin dựa trên schema đã định nghĩa
 parsed_df = kafka_df.selectExpr("CAST(value AS STRING)") \
     .select(F.from_json(F.col("value"), input_schema).alias("data")) \
     .select("data.*")
 
-# 5. Sliding Window Logic
+# Sử dụng cơ chế cửa sổ trượt (Sliding Window) để thu thập chuỗi dữ liệu lịch sử trong 5 phút gần nhất mỗi phút một lần.
+# Watermark được áp dụng để quản lý bộ nhớ đệm và xử lý các bản ghi đến chậm trong ngưỡng 1 phút.
 windowed_df = parsed_df \
     .withWatermark("end_time", "1 minute") \
     .groupBy(
@@ -56,14 +58,13 @@ windowed_df = parsed_df \
         )).alias("history")
     )
 
-# 6. Feature Engineering & Padding
+# Logic xử lý đặc trưng (Feature Engineering): Sắp xếp chuỗi thời gian và bù đắp dữ liệu thiếu (Padding).
+# Nếu dữ liệu trong cửa sổ nhỏ hơn 5 mẫu, hệ thống sẽ điền giá trị mặc định để đảm bảo kích thước đầu vào cho mô hình.
 @F.udf(returnType=ArrayType(DoubleType()))
 def pad_and_extract_volume(history):
-    # Sắp xếp tăng dần theo thời gian (t-4 -> t)
     sorted_data = sorted(history, key=lambda x: x['end_time'])
     vols = [x['avg_traffic_volume'] for x in sorted_data]
     
-    # Padding nếu thiếu dữ liệu (điền 20 vào quá khứ)
     count = len(vols)
     if count < 5:
         missing = 5 - count
@@ -71,22 +72,21 @@ def pad_and_extract_volume(history):
     
     return vols[-5:]
 
-# Tách features
+# Trích xuất các biến trễ (Lag features) từ t-4 đến t để tạo không gian đặc trưng cho mô hình dự báo
 features_df = windowed_df \
     .withColumn("padded_vols", pad_and_extract_volume(F.col("history"))) \
     .select(
-        # ĐÂY LÀ THỜI ĐIỂM T (Hiện tại)
         F.col("window.end").alias("current_timestamp_t"), 
         F.col("cam_id"),
-        F.col("padded_vols")[4].alias("t"),  # Volume tại t
-        F.col("padded_vols")[3].alias("t1"), # Volume tại t-1
+        F.col("padded_vols")[4].alias("t"),
+        F.col("padded_vols")[3].alias("t1"),
         F.col("padded_vols")[2].alias("t2"),
         F.col("padded_vols")[1].alias("t3"),
         F.col("padded_vols")[0].alias("t4")
     )
 
-# Feature Engineering: Tính Hour, DayOfWeek TỪ THỜI ĐIỂM T
-# (Vì Model dùng ngữ cảnh hiện tại để đoán tương lai)
+# Làm giàu dữ liệu bằng cách nhúng các đặc trưng thời gian (Giờ, Thứ) và chuyển đổi lượng giác 
+# để mô hình nhận diện được tính chu kỳ của lưu lượng giao thông theo thời gian trong ngày.
 final_input_df = features_df \
     .withColumn("local_time_t", F.from_utc_timestamp(F.col("current_timestamp_t"), "Asia/Ho_Chi_Minh")) \
     .withColumn("hour", F.hour("local_time_t")) \
@@ -95,20 +95,16 @@ final_input_df = features_df \
     .withColumn("hour_cos", F.cos(F.col("hour") * (2 * math.pi / 24))) \
     .drop("local_time_t")
 
-# 7. Predict
+# Thực hiện dự báo lưu lượng giao thông dựa trên các đặc trưng đã chuẩn bị
 predictions = traffic_model.transform(final_input_df)
 
-# 8. Output Kafka
-# LOGIC MỚI: prediction_timestamp = t + 5 phút
+# Đóng gói kết quả dự báo thành định dạng JSON để gửi về Kafka.
+# Thời điểm dự báo được tính tiến lên 5 phút so với thời điểm hiện tại (t+5).
 kafka_output_df = predictions.select(
     F.col("cam_id").alias("key"),
     F.to_json(F.struct(
-        # Timestamp hiển thị trong kết quả là (t + 5 phút)
         (F.col("current_timestamp_t") + F.expr("INTERVAL 5 MINUTES")).alias("prediction_timestamp"),
-        
-        # Thời điểm thực tế dùng để tính toán (Optional - để debug)
         F.col("current_timestamp_t").alias("base_time_t"),
-        
         F.col("cam_id"),
         F.col("t").alias("current_volume"),
         F.col("prediction").alias("predicted_volume"),
@@ -116,15 +112,15 @@ kafka_output_df = predictions.select(
     )).alias("value")
 )
 
-# Trigger 0s để chạy ngay lập tức khi có dữ liệu
+# Kích hoạt luồng ghi dữ liệu liên tục sang Kafka topic 'traffic-forecast' với độ trễ tối thiểu (0s)
 query = kafka_output_df.writeStream \
     .format("kafka") \
     .outputMode("append") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("topic", "traffic-forecast") \
-    .option("checkpointLocation", "/tmp/checkpoints/job2_correct_time_v2") \
+    .option("checkpointLocation", "/tmp/checkpoint_traffic_forecast") \
     .trigger(processingTime='0 seconds') \
     .start()
 
-print(">>> Job 2 (Correct Time Logic) đang chạy...")
+print(">>> Đang dự đoán lưu lượng 5 phút tiếp theo: Gửi kết quả vào 'traffic-forecast'...")
 query.awaitTermination()

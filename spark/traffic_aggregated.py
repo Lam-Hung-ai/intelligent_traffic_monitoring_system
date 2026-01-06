@@ -1,18 +1,15 @@
-# ==========================================
-# FILE: job1_aggregator.py
-# ==========================================
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, window, avg, to_timestamp, to_json, struct
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 
-# 1. Init Spark
+# Thiết lập môi trường Spark và cấu hình phân vùng dữ liệu để tối ưu hóa việc xáo trộn (shuffle) dữ liệu trong cụm
 spark = SparkSession.builder \
     .appName("Job1_TrafficAggregator") \
     .config("spark.sql.shuffle.partitions", "4") \
     .getOrCreate()
 spark.sparkContext.setLogLevel("WARN")
 
-# 2. Schema Input (Raw Data)
+# Khai báo cấu trúc dữ liệu mong đợi từ Kafka để Spark có thể ánh xạ chính xác các trường dữ liệu từ JSON
 raw_schema = StructType([
     StructField("cam_id", StringType(), True),
     StructField("location", StringType(), True),
@@ -20,7 +17,7 @@ raw_schema = StructType([
     StructField("traffic_volume", IntegerType(), True)
 ])
 
-# 3. Read Raw Kafka
+# Thiết lập kết nối streaming tới Kafka, thu thập dữ liệu thô từ topic đầu vào từ thời điểm sớm nhất có thể
 raw_df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
@@ -28,7 +25,7 @@ raw_df = spark.readStream \
     .option("startingOffsets", "earliest") \
     .load()
 
-# 4. Parse & Clean
+# Chuyển đổi dữ liệu nhị phân từ Kafka sang chuỗi, sau đó giải mã JSON dựa trên Schema và chuẩn hóa kiểu dữ liệu thời gian
 parsed_df = raw_df.selectExpr("CAST(value AS STRING)") \
     .select(from_json(col("value"), raw_schema).alias("data")) \
     .select(
@@ -38,8 +35,8 @@ parsed_df = raw_df.selectExpr("CAST(value AS STRING)") \
         col("data.traffic_volume")
     )
 
-# 5. Window Aggregation (Tính trung bình 1 phút)
-# Watermark 10s để chốt sổ nhanh
+# Áp dụng cơ chế cửa sổ thời gian (Windowing) để gom nhóm dữ liệu theo từng phút. 
+# Watermark được thiết lập để xử lý dữ liệu đến trễ và cho phép hệ thống giải phóng trạng thái cũ sau ngưỡng 10 giây.
 agg_df = parsed_df \
     .withWatermark("timestamp", "10 seconds") \
     .groupBy(
@@ -49,10 +46,9 @@ agg_df = parsed_df \
     ) \
     .agg(avg("traffic_volume").alias("avg_traffic_volume"))
 
-# 6. Chuẩn bị JSON Payload để gửi sang Job 2
-# Job 2 cần các trường: start_time, end_time, cam_id, location, avg_traffic_volume
+# Tái cấu trúc dữ liệu sau tổng hợp thành định dạng Key-Value chuẩn của Kafka.
+# Toàn bộ thông tin tính toán được đóng gói vào một chuỗi JSON duy nhất trong cột 'value'.
 kafka_output_df = agg_df.select(
-    # Key là cam_id để Kafka phân phối partition đều
     col("cam_id").alias("key"),
     to_json(struct(
         col("window.start").alias("start_time"),
@@ -63,16 +59,16 @@ kafka_output_df = agg_df.select(
     )).alias("value")
 )
 
-# 7. Write to Kafka (Topic: traffic-aggregated)
-# Mode "update" để gửi ngay khi có kết quả mới nhất (hoặc "append" nếu muốn chốt cứng)
+# Thực thi tiến trình Streaming, đẩy dữ liệu tổng hợp trở lại Kafka định kỳ mỗi 10 giây.
+# Sử dụng cơ chế checkpoint để đảm bảo khả năng phục hồi và tính toàn vẹn của luồng dữ liệu khi có sự cố.
 query = kafka_output_df.writeStream \
     .format("kafka") \
     .outputMode("append") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("topic", "traffic-aggregated") \
-    .option("checkpointLocation", "/tmp/checkpoints/job1_agdfsd") \
+    .option("checkpointLocation", "/tmp/checkpoint_traffic_aggregated") \
     .trigger(processingTime='10 seconds') \
     .start()
 
-print(">>> Job 1 đang chạy: Gửi dữ liệu tổng hợp vào 'traffic-aggregated'...")
+print(">>> Đang tổng hợp dữ liệu: Gửi dữ liệu tổng hợp vào 'traffic-aggregated'...")
 query.awaitTermination()
