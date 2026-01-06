@@ -1,0 +1,23 @@
+FROM ubuntu:24.04
+
+RUN apt update && apt install -y \
+    wget \
+    openjdk-21-jdk  \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+
+RUN wget https://dlcdn.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz \
+    && tar -xf kafka_2.13-4.1.1.tgz \
+    && mv kafka_2.13-4.1.1 kafka \
+    && rm kafka_2.13-4.1.1.tgz
+
+ENV KAFKA_HOME=/opt/kafka
+ENV PATH="$PATH:$KAFKA_HOME/bin"
+
+COPY ./setup_kafka.sh /opt/setup_kafka.sh
+RUN chmod +x /opt/setup_kafka.sh && /opt/setup_kafka.sh
+
+EXPOSE 9092
+
+CMD ["kafka-server-start.sh", "/opt/kafka/config/server.properties"]

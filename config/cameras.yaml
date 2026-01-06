@@ -1,0 +1,18 @@
+KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+MONGODB_URI: "mongodb://localhost:27017/"
+MONGODB_DB: "traffic_monitoring"
+TOPIC_NAME: "traffic-volume"
+NUM_WORKERS: 1
+FPS_LIMIT: 1
+cameras:
+  - camera_id: cam_000
+    location: Chuong_Trinh
+    source: videos/chuong_trinh.mp4
+
+  - camera_id: cam_001
+    location: Bai do xe
+    source: rtsp://192.168.1.11:554/stream1
+
+  - camera_id: cam_002
+    location: Kho hang
+    source: rtsp://192.168.1.12:554/stream1
