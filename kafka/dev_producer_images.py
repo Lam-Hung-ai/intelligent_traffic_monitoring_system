@@ -99,8 +99,8 @@ def send_image_list_to_kafka(image_paths, config_path):
 if __name__ == "__main__":
     # Danh sách các file ảnh của bạn
     my_images = [
-        "images/giao-thong-ha-noi-autonews.jpg",
-        # "/home/lamhung/code/intelligent_traffic_monitoring_system/images/gt2.jpg",
+        # "images/giao-thong-ha-noi-autonews.jpg",
+        "images/gt2.jpg",
     ]
     
     # Đường dẫn file config của bạn

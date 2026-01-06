@@ -95,29 +95,10 @@ echo "replica.fetch.max.bytes=10485760" >> /opt/kafka/config/server.properties
 kafka-server-start.sh -daemon /opt/kafka/config/server.properties
 
 # Tạo topic cho dữ liệu YOLO
-kafka-topics.sh --create --topic traffic-volume
+kafka-topics.sh --create --topic traffic-volume --bootstrap-server localhost:9092
+kafka-topics.sh --create --topic traffic-raw --bootstrap-server localhost:9092
 ```
-
----
-
-## 5. Hướng dẫn chạy hệ thống
-
-Hệ thống hoạt động theo luồng: **Gửi ảnh (Producer) -> Kafka -> Xử lý (Spark Consumer)**.
-Bạn cần mở 2 terminal để chạy song song. Chú ý nhớ tải yolov11s.pt về máy tính đặt tại thư mục 
-
-### Terminal 1: Producer (Gửi ảnh)
-Gửi dữ liệu hình ảnh từ thư mục `images/` vào Kafka topic `yolo-data`.
-```bash
-uv run producer_images.py
-```
-
-### Terminal 2: Consumer (Spark Streaming & YOLO)
-Đọc dữ liệu từ Kafka và thực hiện nhận diện phương tiện.
-```bash
-spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.0 spark_vehicle_counting.py
-```
-
-## 6. Hướng dẫn chạy luồng 1
+## 5. Hướng dẫn chạy luồng 1
 Cài đặt [mongodb](https://www.mongodb.com/try/download/community)  
 Sau đó cài đặt [mongosh](https://www.mongodb.com/docs/mongodb-shell/install/)
 Chạy từng câu lệnh trên các terminal khác nhau  
@@ -136,7 +117,10 @@ use traffic_monitoring  # sử dụng cơ sở dữ liệu traffic_monitoring
 db.chuong_trinh.find().sort({timestamp: -1}).limit(10)   # Lấy 10 dòng đầu
 ```
 
-## 7. Quy trình làm việc với Git (Dành cho Dev)
+## 6. Hướng dẫn chạy luồng 2 và web
+Cài đẳt [Redis](https://redis.io/docs/latest/operate/oss_and_stack/install/archive/install-redis/install-redis-on-linux/)
+
+## 6. Quy trình làm việc với Git (Dành cho Dev)
 
 ### Cài đặt khuyến nghị
 - Cài đặt extension **Ruff** trên VSCode để tự động format code chuẩn.

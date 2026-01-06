@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Monitoring Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f4f6f9; }
+        .card { box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: none; }
+        .chart-container { position: relative; height: 60vh; width: 100%; }
+        .status-badge { font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+
+<div class="container py-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2 class="fw-bold text-primary">🚗 Traffic Monitoring System</h2>
+            <p class="text-muted">Giám sát lưu lượng và dự báo giao thông theo thời gian thực</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <label for="cameraSelect" class="form-label fw-bold">Chọn Camera:</label>
+            <select id="cameraSelect" class="form-select form-select-lg">
+                <option value="" disabled selected>Đang tải danh sách...</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h5 id="chartTitle" class="card-title mb-0">Dữ liệu lưu lượng</h5>
+                <small id="locationName" class="text-muted">Vị trí: ---</small>
+            </div>
+            <span id="lastUpdated" class="badge bg-secondary status-badge">Cập nhật: ---</span>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="trafficChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+<script>
+    const API_BASE = "http://localhost:8000"; // Đổi port nếu cần
+    let myChart = null;
+    let refreshInterval = null;
+
+    // 1. Khởi tạo Chart
+    function initChart() {
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Lịch sử (Thực tế)',
+                        data: [],
+                        borderColor: 'rgba(54, 162, 235, 1)', // Màu Xanh
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderWidth: 2,
+                        tension: 0.3, // Độ cong mềm mại
+                        pointRadius: 3
+                    },
+                    {
+                        label: 'Dự báo (AI Prediction)',
+                        data: [],
+                        borderColor: 'rgba(255, 99, 132, 1)', // Màu Đỏ
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderWidth: 2,
+                        borderDash: [5, 5], // Nét đứt thể hiện dự đoán
+                        tension: 0.3,
+                        pointRadius: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time', // Trục X là thời gian
+                        time: {
+                            unit: 'minute',
+                            tooltipFormat: 'HH:mm dd/MM',
+                            displayFormats: {
+                                minute: 'HH:mm'
+                            }
+                        },
+                        title: { display: true, text: 'Thời gian' }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Số lượng phương tiện' }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                }
+            }
+        });
+    }
+
+    // 2. Load danh sách Camera
+    async function loadCameras() {
+        try {
+            const res = await fetch(`${API_BASE}/cameras`);
+            if (!res.ok) throw new Error("Lỗi kết nối API cameras");
+            
+            const data = await res.json();
+            const select = document.getElementById('cameraSelect');
+            
+            select.innerHTML = ''; // Xóa các option cũ (như 'Đang tải...')
+            
+            // Ưu tiên sử dụng data.details vì nó chứa location chuẩn từ Config
+            const cams = data.details || [];
+
+            if (cams.length === 0) {
+                const option = document.createElement('option');
+                option.text = "Không tìm thấy Camera nào trong Config";
+                select.appendChild(option);
+                return;
+            }
+
+            cams.forEach((cam, index) => {
+                const option = document.createElement('option');
+                option.value = cam.id;
+                // Hiển thị đẹp: "cam_000 - Chuong_Trinh"
+                option.text = `${cam.id} - ${cam.location}`; 
+                select.appendChild(option);
+                
+                // Tự động chọn camera đầu tiên và tải dữ liệu ngay
+                if (index === 0) {
+                    select.value = cam.id;
+                    fetchData(cam.id);
+                }
+            });
+        } catch (err) {
+            console.error("Lỗi load cameras:", err);
+            const select = document.getElementById('cameraSelect');
+            select.innerHTML = '<option>Mất kết nối tới Server</option>';
+        }
+    }
+    // 3. Lấy dữ liệu và vẽ lên Chart
+    async function fetchData(camId) {
+        try {
+            const res = await fetch(`${API_BASE}/traffic/${camId}`);
+            if (!res.ok) throw new Error("Không có dữ liệu");
+            const data = await res.json();
+
+            // Cập nhật thông tin text
+            document.getElementById('chartTitle').innerText = `Lưu lượng: ${data.cam_id}`;
+            document.getElementById('locationName').innerText = `Vị trí: ${data.location}`;
+            document.getElementById('lastUpdated').innerText = `Cập nhật: ${new Date().toLocaleTimeString()}`;
+
+            // --- XỬ LÝ DỮ LIỆU CHART ---
+            
+            // 1. History Data: Map về dạng {x: thời gian, y: giá trị}
+            const historyPoints = data.history.map(item => ({
+                x: item.end_time, // Trục X dùng end_time
+                y: item.avg_traffic_volume
+            }));
+
+            // 2. Forecast Data
+            const forecastPoints = data.forecast.map(item => ({
+                x: item.prediction_timestamp,
+                y: item.predicted_volume
+            }));
+
+            // Cập nhật vào Chart
+            myChart.data.datasets[0].data = historyPoints;
+            myChart.data.datasets[1].data = forecastPoints;
+            
+            myChart.update(); // Vẽ lại
+
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // --- SỰ KIỆN ---
+
+    // Khi đổi camera
+    document.getElementById('cameraSelect').addEventListener('change', (e) => {
+        fetchData(e.target.value);
+    });
+
+    // Khởi chạy ban đầu
+    window.onload = () => {
+        initChart();
+        loadCameras();
+
+        // Tự động refresh mỗi 60 giây
+        setInterval(() => {
+            const currentCam = document.getElementById('cameraSelect').value;
+            if (currentCam) fetchData(currentCam);
+        }, 60000);
+    };
+
+</script>
+
+</body>
+</html>
