@@ -1,6 +1,4 @@
 KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
-MONGODB_URI: "mongodb://localhost:27017/"
-MONGODB_DB: "traffic_monitoring"
 TOPIC_NAME: "traffic-volume"
 TOPIC_AGGREGATED: "traffic-aggregated"
 TOPIC_FORECAST: "traffic-forecast"
