@@ -1,7 +1,6 @@
 import os
 import sys
 import threading
-from sympy import E
 import yaml
 import torch
 import numpy as np
@@ -93,7 +92,6 @@ def process_batch_iterator(iterator):
                 verbose=False, 
                 device=device, 
                 classes=list(TARGET_CLASSES.keys()),
-                half=(device == 'cuda'), # Dùng kiểu dữ liệu float16
                 conf=0.25
             )
             all_results.extend(res_chunk)
@@ -162,6 +160,7 @@ def save_to_mongodb(df, batch_id):
             
             collection.insert_many(docs)
             print(f">>> [Batch {batch_id}] Đã ghi {len(docs)} records vào collection: {loc}")
+            print(docs)
     except Exception as e:
         print(f"LỖI ghi MongoDB: {e}")
     finally:
@@ -185,7 +184,7 @@ def main():
         .config("spark.sql.streaming.metricsEnabled", "false") \
         .getOrCreate()
     
-    spark.sparkContext.setLogLevel("ERROR")
+    spark.sparkContext.setLogLevel("WARN")
 
     # 1. Đọc luồng từ Kafka
     raw_stream = spark.readStream \
