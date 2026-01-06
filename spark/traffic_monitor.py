@@ -1,6 +1,7 @@
 import os
 import sys
 import threading
+from sympy import E
 import yaml
 import torch
 import numpy as np
@@ -16,7 +17,7 @@ from ultralytics.models import YOLO
 # ==============================================================================
 # 1. TẢI CẤU HÌNH TỪ YAML
 # ==============================================================================
-CONFIG_PATH = "/home/lamhung/code/intelligent_traffic_monitoring_system/config/cameras.yaml"
+CONFIG_PATH = "./config/cameras.yaml"
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -65,54 +66,61 @@ def get_model_instance():
 # ==============================================================================
 def process_batch_iterator(iterator):
     model, device = get_model_instance()
+    SUB_BATCH_SIZE = 20  # Số lượng ảnh xử lý tối đa mỗi lần trên GPU
     
     for pdf in iterator:
-        decoded_images = []
+        images = []
         valid_indices = []
         
         for idx, row in pdf.iterrows():
-            img_bytes = row['value']
-            if img_bytes:
-                nparr = np.frombuffer(img_bytes, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                if img is not None:
-                    decoded_images.append(img)
-                    valid_indices.append(idx)
+            img = cv2.imdecode(np.frombuffer(row['value'], np.uint8), cv2.IMREAD_COLOR)
+            if img is not None:
+                images.append(img)
+                valid_indices.append(idx)
         
-        if not decoded_images:
+        if not images:
+            yield pd.DataFrame(columns=SCHEMA_OUT.names)
             continue
 
-        # Chạy dự đoán cho cả batch ảnh
-        results = model.predict(
-            decoded_images, 
-            device=device, 
-            classes=list(TARGET_CLASSES.keys()), 
-            verbose=False,
-            conf=0.25
-        )
+        all_results = []
+        # Chia nhỏ danh sách images để tránh CUDA Out of Memory
+        for i in range(0, len(images), SUB_BATCH_SIZE):
+            img_chunk = images[i : i + SUB_BATCH_SIZE]
+            
+            # Sử dụng half=True để tiết kiệm 50% VRAM (chỉ dành cho GPU)
+            res_chunk = model.predict(
+                img_chunk, 
+                verbose=False, 
+                device=device, 
+                classes=list(TARGET_CLASSES.keys()),
+                half=(device == 'cuda'), # Dùng kiểu dữ liệu float16
+                conf=0.25
+            )
+            all_results.extend(res_chunk)
+            
+            # Giải phóng bộ nhớ đệm sau mỗi sub-batch
+            if device == 'cuda':
+                torch.cuda.empty_cache()
         
-        batch_results = []
-        for i, res in enumerate(results):
+        output = []
+        for i, res in enumerate(all_results):
             counts = {name: 0 for name in TARGET_CLASSES.values()}
             if res.boxes:
-                cls_ids = res.boxes.cls.cpu().numpy().astype(int)
-                for cid in cls_ids:
-                    if cid in TARGET_CLASSES:
-                        counts[TARGET_CLASSES[cid]] += 1
+                classes = res.boxes.cls.cpu().numpy().astype(int)
+                for cls_id in classes:
+                    if cls_id in TARGET_CLASSES:
+                        counts[TARGET_CLASSES[cls_id]] += 1
             
-            # Lọc các class có số lượng > 0
+            orig = pdf.iloc[valid_indices[i]]
             detail = {k: v for k, v in counts.items() if v > 0}
-            orig_row = pdf.iloc[valid_indices[i]]
-            
-            batch_results.append({
-                "cam_id": str(orig_row['cam_id']),
-                "location": str(orig_row['location']),
-                "timestamp": str(orig_row['timestamp']),
+            output.append({
+                "cam_id": str(orig['cam_id']),
+                "location": str(orig['location']),
+                "timestamp": str(orig['timestamp']),
                 "traffic_volume": int(sum(detail.values())),
                 "detail": detail
             })
-            
-        yield pd.DataFrame(batch_results)
+        yield pd.DataFrame(output)
 
 # ==============================================================================
 # 4. GHI DỮ LIỆU VÀO MONGODB (Location-based Collection)
@@ -134,7 +142,7 @@ def save_to_mongodb(df, batch_id):
         # Chuyển String timestamp -> Datetime object cho MongoDB
         try:
             d['timestamp'] = datetime.strptime(d['timestamp'], "%Y-%m-%d %H:%M:%S")
-        except:
+        except Exception:
             d['timestamp'] = datetime.now()
             
         if loc_key not in data_by_loc:
@@ -174,6 +182,7 @@ def main():
     spark = SparkSession.builder \
         .appName("Traffic_AI_MongoDB_Streaming") \
         .config("spark.sql.shuffle.partitions", str(NUM_WORKERS)) \
+        .config("spark.sql.streaming.metricsEnabled", "false") \
         .getOrCreate()
     
     spark.sparkContext.setLogLevel("ERROR")
@@ -183,8 +192,10 @@ def main():
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_SERVERS) \
         .option("subscribe", TOPIC_NAME) \
-        .option("includeHeaders", "true")   \
-        .option("maxOffsetsPerTrigger", 200) \
+        .option("includeHeaders", "true") \
+        .option("startingOffsets", "latest") \
+        .option("failOnDataLoss", "false") \
+        .option("maxOffsetsPerTrigger", 50) \
         .load()
 
     # 2. Giải mã Metadata từ Headers
